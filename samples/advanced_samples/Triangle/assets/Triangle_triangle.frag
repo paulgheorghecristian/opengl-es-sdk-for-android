@@ -20,9 +20,13 @@
 
 precision mediump float;
 
-varying vec4 v_v4FillColor;
+varying vec2 v_v2UV;
+
+uniform sampler2D u_AlbedoTexture;
 
 void main()
 {
-        gl_FragColor = v_v4FillColor;
+    vec4 v4Texel = texture2D(u_AlbedoTexture, v_v2UV);
+    gl_FragColor = v4Texel;
+    //gl_FragColor = vec4(1, 0, 0, 1);
 }

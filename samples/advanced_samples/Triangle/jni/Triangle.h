@@ -23,7 +23,25 @@
 
 #define GLES_VERSION 2
 
+#define GLM_FORCE_RADIANS
+
 #include <GLES2/gl2.h>
+#include <glm/glm.hpp>
+#include <vector>
+
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+
+using uint = unsigned int;
+using uchar = unsigned char;
+
+#include <stb/stb_image.h>
+#include <stb/stb_image_write.h>
+
 
 /* Simple triangle. */
 const float triangleVertices[] =
@@ -40,5 +58,22 @@ const float triangleColors[] =
     0.0, 1.0, 0.0, 1.0,
     0.0, 1.0, 0.0, 1.0,
 };
+
+struct Vertex{
+    glm::vec3 position;
+    glm::vec2 UV;
+
+    Vertex(const glm::vec3 &pos, const glm::vec2 &UV): position(pos), UV(UV) {}
+    Vertex(): position(0), UV(0) {}
+};
+
+std::vector<Vertex> _3DImageMeshVertices;
+std::vector<unsigned short> _3DImageMeshIndices;
+
+enum VBOs{
+    VERTEX = 0, INDEX, NUM_VBOS
+};
+GLuint vboHandles[NUM_VBOS];
+GLuint albedoTextureID = 0, depthTextureID = 0;
 
 #endif /* TRIANGLE_H */

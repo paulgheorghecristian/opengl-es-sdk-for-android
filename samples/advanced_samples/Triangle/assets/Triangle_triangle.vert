@@ -18,13 +18,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-attribute vec4 a_v4Position;
-attribute vec4 a_v4FillColor;
+attribute vec3 a_v3Position;
+attribute vec2 a_v2UV;
 
-varying vec4 v_v4FillColor;
+varying vec2 v_v2UV;
+
+uniform mat4 projectionMatrix, viewMatrix, modelMatrix;
+
+uniform sampler2D u_DepthTexture;
 
 void main()
 {
-    v_v4FillColor = a_v4FillColor;
-    gl_Position = a_v4Position;
+    v_v2UV = a_v2UV;
+    vec4 v4Texel = texture2D(u_DepthTexture, a_v2UV);
+
+    gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(a_v3Position.xy, v4Texel.x, 1.0);
+    //gl_Position = vec4(a_v3Position.xy, 1.0, 1.0);
 }
