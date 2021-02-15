@@ -41,6 +41,8 @@
 #include "Shader.h"
 #include "Timer.h"
 
+#include <opencv2/core/mat.hpp>
+
 using std::string;
 using namespace MaliSDK;
 
@@ -171,9 +173,9 @@ bool setupGraphics(int width, int height)
     cameraRotation = glm::vec3(0, 0, 0);
     updateViewMatrix();
 
-    position = glm::vec3(0, 0, -30);
+    position = glm::vec3(0, 0, -60);
     rotation = glm::vec3(0);
-    scale = glm::vec3(20, 40, 20);
+    scale = glm::vec3(20, 40, 40);
     updateModelMatrix();
 
     glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
@@ -186,17 +188,22 @@ bool setupGraphics(int width, int height)
     GL_CHECK(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
     GL_CHECK(glClearDepthf(1.0f));
     glDisable(GL_CULL_FACE);
+
+    cv::Mat();
     return true;
 }
 
-void renderFrame(void)
+void renderFrame(jfloat *gyroQuat)
 {
     GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     GL_CHECK(glUseProgram(programID));
 
-    rotation = glm::vec3(0, 5*glm::sin(rotY), 0);
-    rotY += 0.05f;
+
+    glm::quat gyroQuatGLM(gyroQuat[0], gyroQuat[1], gyroQuat[2], gyroQuat[3]);
+    glm::vec3 euler = glm::eulerAngles(gyroQuatGLM);
+    rotation = glm::vec3(0, rotY, 0);
+    rotY -= euler.y*0.8f;
     updateModelMatrix();
 
     glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
@@ -285,8 +292,6 @@ bool initTexture() {
     int width, height, chn;
     unsigned char *data = stbi_load(albedoFullFilename.c_str(), &width, &height, &chn, 0);
 
-    LOGD("AICI w=%d h=%d chn=%d\n", width, height, chn);
-
     if (data == NULL) {
         LOGE("%s not found", albedoFullFilename.c_str());
         return false;
@@ -346,9 +351,10 @@ extern "C"
     }
 
     JNIEXPORT void JNICALL Java_com_arm_malideveloper_openglessdk_triangle_Triangle_step
-    (JNIEnv *env, jclass jcls)
+    (JNIEnv *env, jclass jcls, jfloatArray gyroQuat)
     {
-        renderFrame();
+        jfloat * quadData = env->GetFloatArrayElements(gyroQuat, 0);
+        renderFrame(quadData);
     }
 
     JNIEXPORT void JNICALL Java_com_arm_malideveloper_openglessdk_triangle_Triangle_uninit
