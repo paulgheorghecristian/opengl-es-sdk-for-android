@@ -70,10 +70,15 @@ struct Vertex{
 std::vector<Vertex> _3DImageMeshVertices;
 std::vector<unsigned short> _3DImageMeshIndices;
 
+std::vector<Vertex _bgVertices;
+
 enum VBOs{
     VERTEX = 0, INDEX, NUM_VBOS
 };
 GLuint vboHandles[NUM_VBOS];
-GLuint albedoTextureID = 0, depthTextureID = 0;
+GLuint albedoTextureID = 0, depthTextureID = 0, maskTextureID = 0;
+
+GLuint vboBG = 0;
+GLuint albedoBGTexture = 0;
 
 #endif /* TRIANGLE_H */

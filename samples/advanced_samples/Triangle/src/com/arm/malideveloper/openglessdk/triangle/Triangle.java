@@ -163,7 +163,7 @@ public class Triangle extends MaliSamplesActivity implements SensorEventListener
     static
     {
         // Load the NDK library for this example, built with ndk-build
+        System.loadLibrary("opencv_java3");
         System.loadLibrary("Native");
-        System.loadLibrary("opencv_java");
     }
 }

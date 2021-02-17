@@ -23,10 +23,16 @@ precision mediump float;
 varying vec2 v_v2UV;
 
 uniform sampler2D u_AlbedoTexture;
+uniform sampler2D u_MaskTexture;
 
 void main()
 {
     vec4 v4Texel = texture2D(u_AlbedoTexture, v_v2UV);
+    vec4 mask = texture2D(u_MaskTexture, v_v2UV);
+
+    if (mask.r < 0.95)
+        discard;
+
     gl_FragColor = v4Texel;
     //gl_FragColor = vec4(1, 0, 0, 1);
 }

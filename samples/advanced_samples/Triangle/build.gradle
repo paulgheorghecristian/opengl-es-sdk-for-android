@@ -60,6 +60,8 @@ android {
             res.srcDirs = ['res']
             assets.srcDirs = ['assets']
 			java.srcDirs = ['src']
+            jni.srcDirs = [] //disable automatic ndk-build call
+            jniLibs.srcDir '../common_native/jniLibs'
         }
     }
 
@@ -68,8 +70,10 @@ android {
             path "../../CMakeLists.txt"
         }
     }
+
 }
 
 dependencies {
-   implementation project(':samples:advanced_samples:common_java')
+    implementation project(':samples:advanced_samples:common_java')
+    implementation project(':openCVLibrary3410')
 }

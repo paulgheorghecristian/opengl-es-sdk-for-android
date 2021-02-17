@@ -43,6 +43,10 @@
 
 #include <opencv2/core/mat.hpp>
 
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/highgui/highgui.hpp"
+
+
 using std::string;
 using namespace MaliSDK;
 
@@ -50,6 +54,9 @@ using namespace MaliSDK;
 string resourceDirectory = "/data/data/com.arm.malideveloper.openglessdk.triangle/";
 string vertexShaderFilename = "Triangle_triangle.vert";
 string fragmentShaderFilename = "Triangle_triangle.frag";
+
+string simpleVSFilename = "Simple.vert";
+string simpleFSFilename = "Simple.frag";
 
 string albedoFilename = "albedo.jpg";
 string depthFilename = "depth.png";
@@ -60,8 +67,11 @@ GLint iLocPosition = -1;
 GLint iLocFillColor = -1;
 GLint iLocUV = -1;
 
+GLuint programID2;
+
 GLint iLocAlbedoTexture = -1;
 GLint iLocDepthTexture = -1;
+GLint iLocMaskTexture = -1;
 GLint iLocProjectionMatrix = -1;
 GLint iLocViewMatrix = -1;
 GLint iLocModelMatrix = -1;
@@ -113,6 +123,9 @@ bool setupGraphics(int width, int height)
     GLuint vertexShaderID = 0;
     GLuint fragmentShaderID = 0;
 
+    GLuint vertexShaderID2 = 0;
+    GLuint fragmentShaderID2 = 0;
+
     GL_CHECK(glEnable(GL_DEPTH_TEST));
     GL_CHECK(glDepthFunc(GL_LEQUAL));
     
@@ -127,6 +140,11 @@ bool setupGraphics(int width, int height)
     //text->addString(0, 0, "Simple triangle", 255, 255, 0, 255);
 
     /* Process shaders. */
+    Shader::processShader(&vertexShaderID, vertexShaderPath.c_str(), GL_VERTEX_SHADER);
+    LOGD("vertexShaderID = %d", vertexShaderID);
+    Shader::processShader(&fragmentShaderID, fragmentShaderPath.c_str(), GL_FRAGMENT_SHADER);
+    LOGD("fragmentShaderID = %d", fragmentShaderID);
+
     Shader::processShader(&vertexShaderID, vertexShaderPath.c_str(), GL_VERTEX_SHADER);
     LOGD("vertexShaderID = %d", vertexShaderID);
     Shader::processShader(&fragmentShaderID, fragmentShaderPath.c_str(), GL_FRAGMENT_SHADER);
@@ -156,6 +174,10 @@ bool setupGraphics(int width, int height)
     GL_CHECK(glUniform1i(iLocAlbedoTexture, 0));
     iLocDepthTexture = GL_CHECK(glGetUniformLocation(programID, "u_DepthTexture"));
     GL_CHECK(glUniform1i(iLocDepthTexture, 1));
+    iLocDepthTexture = GL_CHECK(glGetUniformLocation(programID, "u_DepthTexture"));
+    GL_CHECK(glUniform1i(iLocDepthTexture, 1));
+    iLocMaskTexture = GL_CHECK(glGetUniformLocation(programID, "u_MaskTexture"));
+    GL_CHECK(glUniform1i(iLocMaskTexture, 2));
 
     iLocProjectionMatrix = GL_CHECK(glGetUniformLocation(programID, "projectionMatrix"));
     iLocViewMatrix = GL_CHECK(glGetUniformLocation(programID, "viewMatrix"));
@@ -189,7 +211,6 @@ bool setupGraphics(int width, int height)
     GL_CHECK(glClearDepthf(1.0f));
     glDisable(GL_CULL_FACE);
 
-    cv::Mat();
     return true;
 }
 
@@ -200,11 +221,13 @@ void renderFrame(jfloat *gyroQuat)
     GL_CHECK(glUseProgram(programID));
 
 
-    glm::quat gyroQuatGLM(gyroQuat[0], gyroQuat[1], gyroQuat[2], gyroQuat[3]);
-    glm::vec3 euler = glm::eulerAngles(gyroQuatGLM);
-    rotation = glm::vec3(0, rotY, 0);
-    rotY -= euler.y*0.8f;
-    updateModelMatrix();
+    if (gyroQuat != NULL) {
+        glm::quat gyroQuatGLM(gyroQuat[0], gyroQuat[1], gyroQuat[2], gyroQuat[3]);
+        glm::vec3 euler = glm::eulerAngles(gyroQuatGLM);
+        rotation = glm::vec3(0, rotY, 0);
+        rotY -= euler.y * 0.8f;
+        updateModelMatrix();
+    }
 
     glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
     glUniformMatrix4fv(iLocViewMatrix, 1, GL_FALSE, glm::value_ptr(viewMatrix));
@@ -223,6 +246,8 @@ void renderFrame(jfloat *gyroQuat)
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoTextureID));
     GL_CHECK(glActiveTexture(GL_TEXTURE1));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureID));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
 
     GL_CHECK(glDrawElements(GL_TRIANGLES, _3DImageMeshIndices.size(), GL_UNSIGNED_SHORT, (void *) 0));
 
@@ -235,10 +260,7 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
     const float RECT_HEIGHT = 2.0f / numRectY;
 
     float currX;
-    float currY = -1.0f;
-
-//    _3DImageMeshVertices = new float[(numRectX+1)*(numRectY+1)];
-//    _3DImageMeshIndices = new unsigned int[numRectX*numRectY*4];
+    float currY = 1.0f;
 
     for (unsigned int y = 0; y < numRectY+1; y++) {
         currX = -1.0f;
@@ -251,7 +273,7 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
 
             currX += RECT_WIDTH;
         }
-        currY += RECT_HEIGHT;
+        currY -= RECT_HEIGHT;
     }
 
     for (unsigned int y = 0; y < numRectY; y++) {
@@ -267,20 +289,13 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
         }
     }
 
-    glGenBuffers(NUM_VBOS, vboHandles);
-    glBindBuffer(GL_ARRAY_BUFFER, vboHandles[VERTEX]);
-    glBufferData(GL_ARRAY_BUFFER,
-                 sizeof(Vertex) * _3DImageMeshVertices.size(),
-                 &_3DImageMeshVertices[0],
-                 GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f)));
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboHandles[INDEX]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                 sizeof(unsigned int) * _3DImageMeshIndices.size(),
-                 &_3DImageMeshIndices[0],
-                 GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f)));
 }
 
 bool initTexture() {
@@ -317,10 +332,64 @@ bool initTexture() {
         return false;
     }
 
+    cv::Mat src(height, width, CV_8UC1, data);
+    cv::Mat dst, thresh;
+
+    // sharpen image
+    cv::bilateralFilter(src, dst, 15, 75, 75);
+
+    // for contour detection
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+    cv::threshold(dst, thresh, 127, 255, cv::THRESH_BINARY);
+    cv::findContours(thresh, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
+
+    if (contours.size() > 0) {
+        for (std::size_t c = 0; c < hierarchy.size(); c++) {
+            if (hierarchy[c][3] == -1) {
+                // is root contour
+                std::vector<cv::Point> &contour = contours[c];
+                int width = thresh.cols;
+                int height = thresh.rows;
+
+                for (std::size_t v = 0; v < _3DImageMeshVertices.size(); v++) {
+                    // find point in mesh and remove
+                    for (cv::Point &p: contour) {
+                        glm::vec3 pos = _3DImageMeshVertices[v].position;
+
+                        float px = (((float) p.x / width) * 2.0f) - 1.0f;
+                        float py = (((float) p.y / height) * 2.0f) - 1.0f;
+
+                        glm::vec2 diff = glm::vec2(pos.x, pos.y) - glm::vec2(px, py);
+                        if (glm::length(diff) < 0.02f) {
+                            //_3DImageMeshVertices[v].position = glm::vec3(0);
+                            //_3DImageMeshVertices[v].UV = glm::vec2(-2, -2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    glGenBuffers(NUM_VBOS, vboHandles);
+    glBindBuffer(GL_ARRAY_BUFFER, vboHandles[VERTEX]);
+    glBufferData(GL_ARRAY_BUFFER,
+                 sizeof(Vertex) * _3DImageMeshVertices.size(),
+                 &_3DImageMeshVertices[0],
+                 GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboHandles[INDEX]);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 sizeof(unsigned int) * _3DImageMeshIndices.size(),
+                 &_3DImageMeshIndices[0],
+                 GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
     GL_CHECK(glGenTextures(1, &depthTextureID));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureID));
 
-    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[chn], width, height, 0, pixelFormat[chn], GL_UNSIGNED_BYTE, data));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[chn], width, height, 0, pixelFormat[chn], GL_UNSIGNED_BYTE, dst.data));
 
     /* Set texture mode. */
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
@@ -331,6 +400,44 @@ bool initTexture() {
 
     stbi_image_free(data);
 
+    GL_CHECK(glGenTextures(1, &maskTextureID));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
+
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, thresh.data));
+
+    /* Set texture mode. */
+    GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+
+    glGenBuffers(1, &vboBG);
+    glBindBuffer(GL_ARRAY_BUFFER,
+                 vboBG);
+    glBufferData(GL_ARRAY_BUFFER,
+                 sizeof(Vertex) * _bgVertices.size(),
+                 &_bgVertices[0],
+                 GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    cv::Mat albedoInpainted, threshResized;
+
+    thresh.resize(thresh, threshResized, cv::Size(dst.cols, dst.rows), 0, 0, cv::INTER_LINEAR);
+
+    cv:inpaint(dst, threshResized, albedoInpainted, 11, cv::INPAINT_TELEA);
+
+    GL_CHECK(glGenTextures(1, &albedoBGTexture));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
+
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, albedoInpainted.data));
+
+    /* Set texture mode. */
+    GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 
     return true;
 }

@@ -52,3 +52,5 @@ include ':samples:tutorials:OcclusionQueries'
 include ':samples:tutorials:ShadowMapping'
 include ':samples:tutorials:SimpleTriangle'
 include ':samples:tutorials:Vbo'
+include ':openCVLibrary3410'
+
