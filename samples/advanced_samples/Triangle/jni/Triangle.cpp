@@ -45,6 +45,7 @@
 
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
+#include "opencv2/photo/photo.hpp"
 
 
 using std::string;
@@ -64,10 +65,11 @@ string depthFilename = "depth.png";
 /* Shader variables. */
 GLuint programID;
 GLint iLocPosition = -1;
-GLint iLocFillColor = -1;
 GLint iLocUV = -1;
 
 GLuint programID2;
+GLint iLocPosition2 = -1;
+GLint iLocUV2 = -1;
 
 GLint iLocAlbedoTexture = -1;
 GLint iLocDepthTexture = -1;
@@ -75,6 +77,12 @@ GLint iLocMaskTexture = -1;
 GLint iLocProjectionMatrix = -1;
 GLint iLocViewMatrix = -1;
 GLint iLocModelMatrix = -1;
+
+GLint iLocAlbedoTexture2 = -1;
+GLint iLocProjectionMatrix2 = -1;
+GLint iLocViewMatrix2 = -1;
+GLint iLocModelMatrix2 = -1;
+
 
 /* A text object to draw text on the screen. */ 
 Text *text;
@@ -120,6 +128,9 @@ bool setupGraphics(int width, int height)
     string vertexShaderPath = resourceDirectory + vertexShaderFilename; 
     string fragmentShaderPath = resourceDirectory + fragmentShaderFilename;
 
+    string vertexShaderPath2 = resourceDirectory + simpleVSFilename;
+    string fragmentShaderPath2 = resourceDirectory + simpleFSFilename;
+
     GLuint vertexShaderID = 0;
     GLuint fragmentShaderID = 0;
 
@@ -145,10 +156,10 @@ bool setupGraphics(int width, int height)
     Shader::processShader(&fragmentShaderID, fragmentShaderPath.c_str(), GL_FRAGMENT_SHADER);
     LOGD("fragmentShaderID = %d", fragmentShaderID);
 
-    Shader::processShader(&vertexShaderID, vertexShaderPath.c_str(), GL_VERTEX_SHADER);
-    LOGD("vertexShaderID = %d", vertexShaderID);
-    Shader::processShader(&fragmentShaderID, fragmentShaderPath.c_str(), GL_FRAGMENT_SHADER);
-    LOGD("fragmentShaderID = %d", fragmentShaderID);
+    Shader::processShader(&vertexShaderID2, vertexShaderPath2.c_str(), GL_VERTEX_SHADER);
+    LOGD("vertexShaderID = %d", vertexShaderID2);
+    Shader::processShader(&fragmentShaderID2, fragmentShaderPath2.c_str(), GL_FRAGMENT_SHADER);
+    LOGD("fragmentShaderID = %d", fragmentShaderID2);
 
     programID = GL_CHECK(glCreateProgram());
     if (programID == 0)
@@ -186,6 +197,33 @@ bool setupGraphics(int width, int height)
     LOGD("iLocProjectionMatrix=%d", iLocProjectionMatrix);
     LOGD("iLocViewMatrix=%d", iLocViewMatrix);
 
+    programID2 = GL_CHECK(glCreateProgram());
+    if (programID2 == 0)
+    {
+        LOGE("Could not create program.");
+        return false;
+    }
+
+    GL_CHECK(glAttachShader(programID2, vertexShaderID2));
+    GL_CHECK(glAttachShader(programID2, fragmentShaderID2));
+    GL_CHECK(glLinkProgram(programID2));
+    GL_CHECK(glUseProgram(programID2));
+
+    /* Positions. */
+    GL_CHECK(iLocPosition2 = glGetAttribLocation(programID2, "a_v3Position"));
+    LOGD("glGetAttribLocation(\"a_v3Position\") = %d\n", iLocPosition2);
+
+    /* UV. */
+    GL_CHECK(iLocUV2 = glGetAttribLocation(programID2, "a_v2UV"));
+    LOGD("glGetAttribLocation(\"a_v2UV\") = %d\n", iLocUV2);
+
+    iLocAlbedoTexture2 = GL_CHECK(glGetUniformLocation(programID2, "u_AlbedoTexture"));
+    GL_CHECK(glUniform1i(iLocAlbedoTexture2, 0));
+
+    iLocProjectionMatrix2 = GL_CHECK(glGetUniformLocation(programID2, "projectionMatrix"));
+    iLocViewMatrix2 = GL_CHECK(glGetUniformLocation(programID2, "viewMatrix"));
+    iLocModelMatrix2 = GL_CHECK(glGetUniformLocation(programID2, "modelMatrix"));
+
     GL_CHECK(glViewport(0, 0, width, height));
 
     init3DImageMesh(128, 128);
@@ -197,12 +235,18 @@ bool setupGraphics(int width, int height)
 
     position = glm::vec3(0, 0, -60);
     rotation = glm::vec3(0);
-    scale = glm::vec3(20, 40, 40);
+    scale = glm::vec3(20, 40, 20);
     updateModelMatrix();
 
+    GL_CHECK(glUseProgram(programID));
     glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
     glUniformMatrix4fv(iLocViewMatrix, 1, GL_FALSE, glm::value_ptr(viewMatrix));
     glUniformMatrix4fv(iLocModelMatrix, 1, GL_FALSE, glm::value_ptr(modelMatrix));
+
+    GL_CHECK(glUseProgram(programID2));
+    glUniformMatrix4fv(iLocProjectionMatrix2, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+    glUniformMatrix4fv(iLocViewMatrix2, 1, GL_FALSE, glm::value_ptr(viewMatrix));
+    glUniformMatrix4fv(iLocModelMatrix2, 1, GL_FALSE, glm::value_ptr(modelMatrix));
 
     initTexture();
 
@@ -251,6 +295,24 @@ void renderFrame(jfloat *gyroQuat)
 
     GL_CHECK(glDrawElements(GL_TRIANGLES, _3DImageMeshIndices.size(), GL_UNSIGNED_SHORT, (void *) 0));
 
+    // BACKGROUND
+    GL_CHECK(glUseProgram(programID2));
+
+    glUniformMatrix4fv(iLocProjectionMatrix2, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+    glUniformMatrix4fv(iLocViewMatrix2, 1, GL_FALSE, glm::value_ptr(viewMatrix));
+    glUniformMatrix4fv(iLocModelMatrix2, 1, GL_FALSE, glm::value_ptr(modelMatrix));
+
+    glBindBuffer(GL_ARRAY_BUFFER, vboBG);
+    glEnableVertexAttribArray(iLocPosition2);
+    glVertexAttribPointer(iLocPosition2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) 0);
+    glEnableVertexAttribArray(iLocUV2);
+    glVertexAttribPointer(iLocUV2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) (sizeof(glm::vec3)));
+
+    GL_CHECK(glActiveTexture(GL_TEXTURE0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
+
+    GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, _bgVertices.size()));
+
     /* Draw fonts. */
     //text->draw();
 }
@@ -289,13 +351,13 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
         }
     }
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f)));
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec2(0, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f), glm::vec2(1, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
 }
 
 bool initTexture() {
@@ -304,10 +366,10 @@ bool initTexture() {
     string albedoFullFilename = resourceDirectory + albedoFilename;
     string depthFullFilename = resourceDirectory + depthFilename;
 
-    int width, height, chn;
-    unsigned char *data = stbi_load(albedoFullFilename.c_str(), &width, &height, &chn, 0);
+    int albedoWidth, albedoHeight, albedoChn;
+    unsigned char *dataAlbedo = stbi_load(albedoFullFilename.c_str(), &albedoWidth, &albedoHeight, &albedoChn, 0);
 
-    if (data == NULL) {
+    if (dataAlbedo == NULL) {
         LOGE("%s not found", albedoFullFilename.c_str());
         return false;
     }
@@ -315,7 +377,9 @@ bool initTexture() {
     GL_CHECK(glGenTextures(1, &albedoTextureID));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoTextureID));
 
-    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[chn], width, height, 0, pixelFormat[chn], GL_UNSIGNED_BYTE, data));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[albedoChn],
+                          albedoWidth, albedoHeight, 0,
+                          pixelFormat[albedoChn], GL_UNSIGNED_BYTE, dataAlbedo));
 
     /* Set texture mode. */
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
@@ -324,9 +388,8 @@ bool initTexture() {
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 
-    stbi_image_free(data);
-
-    data = stbi_load(depthFullFilename.c_str(), &width, &height, &chn, 0);
+    int width, height, chn;
+    unsigned char *data = stbi_load(depthFullFilename.c_str(), &width, &height, &chn, 0);
     if (data == NULL) {
         LOGE("%s not found", depthFullFilename.c_str());
         return false;
@@ -344,32 +407,32 @@ bool initTexture() {
     cv::threshold(dst, thresh, 127, 255, cv::THRESH_BINARY);
     cv::findContours(thresh, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
 
-    if (contours.size() > 0) {
-        for (std::size_t c = 0; c < hierarchy.size(); c++) {
-            if (hierarchy[c][3] == -1) {
-                // is root contour
-                std::vector<cv::Point> &contour = contours[c];
-                int width = thresh.cols;
-                int height = thresh.rows;
-
-                for (std::size_t v = 0; v < _3DImageMeshVertices.size(); v++) {
-                    // find point in mesh and remove
-                    for (cv::Point &p: contour) {
-                        glm::vec3 pos = _3DImageMeshVertices[v].position;
-
-                        float px = (((float) p.x / width) * 2.0f) - 1.0f;
-                        float py = (((float) p.y / height) * 2.0f) - 1.0f;
-
-                        glm::vec2 diff = glm::vec2(pos.x, pos.y) - glm::vec2(px, py);
-                        if (glm::length(diff) < 0.02f) {
-                            //_3DImageMeshVertices[v].position = glm::vec3(0);
-                            //_3DImageMeshVertices[v].UV = glm::vec2(-2, -2);
-                        }
-                    }
-                }
-            }
-        }
-    }
+//    if (contours.size() > 0) {
+//        for (std::size_t c = 0; c < hierarchy.size(); c++) {
+//            if (hierarchy[c][3] == -1) {
+//                // is root contour
+//                std::vector<cv::Point> &contour = contours[c];
+//                int width = thresh.cols;
+//                int height = thresh.rows;
+//
+//                for (std::size_t v = 0; v < _3DImageMeshVertices.size(); v++) {
+//                    // find point in mesh and remove
+//                    for (cv::Point &p: contour) {
+//                        glm::vec3 pos = _3DImageMeshVertices[v].position;
+//
+//                        float px = (((float) p.x / width) * 2.0f) - 1.0f;
+//                        float py = (((float) p.y / height) * 2.0f) - 1.0f;
+//
+//                        glm::vec2 diff = glm::vec2(pos.x, pos.y) - glm::vec2(px, py);
+//                        if (glm::length(diff) < 0.02f) {
+//                            //_3DImageMeshVertices[v].position = glm::vec3(0);
+//                            //_3DImageMeshVertices[v].UV = glm::vec2(-2, -2);
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
 
     glGenBuffers(NUM_VBOS, vboHandles);
     glBindBuffer(GL_ARRAY_BUFFER, vboHandles[VERTEX]);
@@ -422,15 +485,18 @@ bool initTexture() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     cv::Mat albedoInpainted, threshResized;
+    cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC3, dataAlbedo);
 
-    thresh.resize(thresh, threshResized, cv::Size(dst.cols, dst.rows), 0, 0, cv::INTER_LINEAR);
+    cv::resize(thresh, threshResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_LINEAR);
 
-    cv:inpaint(dst, threshResized, albedoInpainted, 11, cv::INPAINT_TELEA);
+    cv:inpaint(srcAlbedo, threshResized, albedoInpainted, 11, cv::INPAINT_TELEA);
 
     GL_CHECK(glGenTextures(1, &albedoBGTexture));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
 
-    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, albedoInpainted.data));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[albedoChn],
+                          albedoWidth, albedoHeight, 0,
+                          pixelFormat[albedoChn], GL_UNSIGNED_BYTE, albedoInpainted.data));
 
     /* Set texture mode. */
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
@@ -438,6 +504,8 @@ bool initTexture() {
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+
+    stbi_image_free(dataAlbedo);
 
     return true;
 }
@@ -450,6 +518,9 @@ extern "C"
         /* Make sure that all resource files are in place. */
         AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), vertexShaderFilename.c_str());
         AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), fragmentShaderFilename.c_str());
+
+        AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), simpleVSFilename.c_str());
+        AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), simpleFSFilename.c_str());
 
         AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), albedoFilename.c_str());
         AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), depthFilename.c_str());

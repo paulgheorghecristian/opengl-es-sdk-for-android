@@ -70,7 +70,7 @@ struct Vertex{
 std::vector<Vertex> _3DImageMeshVertices;
 std::vector<unsigned short> _3DImageMeshIndices;
 
-std::vector<Vertex _bgVertices;
+std::vector<Vertex> _bgVertices;
 
 enum VBOs{
     VERTEX = 0, INDEX, NUM_VBOS
