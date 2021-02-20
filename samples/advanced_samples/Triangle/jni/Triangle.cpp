@@ -92,7 +92,7 @@ glm::mat4 projectionMatrix, viewMatrix, modelMatrix;
 glm::vec3 cameraPosition, cameraRotation;
 glm::vec3 position, rotation, scale;
 
-float rotY = 0;
+float rotY = 0, rotX = 0;
 
 const static GLenum pixelFormat[5] = { 0, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_RGB, GL_RGBA };
 const static GLint internalFormat[5] = { 0, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_RGB, GL_RGBA };
@@ -233,9 +233,9 @@ bool setupGraphics(int width, int height)
     cameraRotation = glm::vec3(0, 0, 0);
     updateViewMatrix();
 
-    position = glm::vec3(0, 0, -60);
+    position = glm::vec3(0, 0, -40);
     rotation = glm::vec3(0);
-    scale = glm::vec3(20, 40, 20);
+    scale = glm::vec3(20, 40, 30);
     updateModelMatrix();
 
     GL_CHECK(glUseProgram(programID));
@@ -351,13 +351,13 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
         }
     }
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec2(0, 1)));
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(0, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f)*1.2f, glm::vec2(0, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(1, 1)));
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f), glm::vec2(1, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f)*1.2f, glm::vec2(0, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f)*1.2f, glm::vec2(1, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(1, 1)));
 }
 
 bool initTexture() {
@@ -367,19 +367,21 @@ bool initTexture() {
     string depthFullFilename = resourceDirectory + depthFilename;
 
     int albedoWidth, albedoHeight, albedoChn;
-    unsigned char *dataAlbedo = stbi_load(albedoFullFilename.c_str(), &albedoWidth, &albedoHeight, &albedoChn, 0);
+    unsigned char *dataAlbedo = stbi_load(albedoFullFilename.c_str(), &albedoWidth, &albedoHeight, &albedoChn, STBI_rgb_alpha);
 
     if (dataAlbedo == NULL) {
         LOGE("%s not found", albedoFullFilename.c_str());
         return false;
     }
 
+    LOGD("AICI=%d %d %d\n", albedoWidth, albedoHeight, albedoChn);
+
     GL_CHECK(glGenTextures(1, &albedoTextureID));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoTextureID));
 
-    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[albedoChn],
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
                           albedoWidth, albedoHeight, 0,
-                          pixelFormat[albedoChn], GL_UNSIGNED_BYTE, dataAlbedo));
+                          GL_RGBA, GL_UNSIGNED_BYTE, dataAlbedo));
 
     /* Set texture mode. */
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
@@ -484,18 +486,22 @@ bool initTexture() {
                  GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    cv::Mat albedoInpainted, threshResized;
-    cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC3, dataAlbedo);
+    cv::Mat albedoInpainted, threshResized, albedoResized;
+    cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC4, dataAlbedo);
+    cv::Mat srcAlbedoRGB;
 
-    cv::resize(thresh, threshResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_LINEAR);
+    cv::cvtColor(srcAlbedo, srcAlbedoRGB, cv::COLOR_RGBA2RGB);
 
-    cv:inpaint(srcAlbedo, threshResized, albedoInpainted, 11, cv::INPAINT_TELEA);
+    cv::resize(srcAlbedoRGB, albedoResized, cv::Size(width, height), 0, 0, cv::INTER_LINEAR);
+    //cv::resize(thresh, threshResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_LINEAR);
+
+    cv:inpaint(albedoResized, thresh, albedoInpainted, 11, cv::INPAINT_TELEA);
 
     GL_CHECK(glGenTextures(1, &albedoBGTexture));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
 
     GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[albedoChn],
-                          albedoWidth, albedoHeight, 0,
+                          albedoInpainted.size().width, albedoInpainted.size().height, 0,
                           pixelFormat[albedoChn], GL_UNSIGNED_BYTE, albedoInpainted.data));
 
     /* Set texture mode. */
