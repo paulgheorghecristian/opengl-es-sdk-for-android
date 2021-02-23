@@ -24,6 +24,8 @@ varying vec2 v_v2UV;
 
 uniform sampler2D u_AlbedoTexture;
 uniform sampler2D u_MaskTexture;
+uniform sampler2D u_DepthTexture;
+
 
 void main()
 {

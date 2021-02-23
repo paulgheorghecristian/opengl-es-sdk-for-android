@@ -29,8 +29,8 @@ uniform sampler2D u_DepthTexture;
 
 void main()
 {
-    v_v2UV = a_v2UV;
-    vec4 v4Texel = texture2D(u_DepthTexture, a_v2UV);
+    v_v2UV = vec2(a_v2UV.x, 1.0 - a_v2UV.y);
+    vec4 v4Texel = texture2D(u_DepthTexture, v_v2UV);
 
     //gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(a_v3Position.xy, 0.5, 1.0);
     gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(a_v3Position.xy, v4Texel.x, 1.0);
