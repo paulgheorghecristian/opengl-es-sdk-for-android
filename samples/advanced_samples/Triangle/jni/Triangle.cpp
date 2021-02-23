@@ -75,8 +75,8 @@ string depthFilename = "depth.png";
 string predictNet = "tiefenrausch.pb";
 string initNet = "tiefenrausch_init.pb";
 
-//string predictNet = "u2netp_predict.pb";
-//string initNet = "u2netp_init.pb";
+string predictNet2 = "u2netp_predict.pb";
+string initNet2 = "u2netp_init.pb";
 
 /* Shader variables. */
 GLuint programID;
@@ -116,6 +116,11 @@ const static GLint internalFormat[5] = { 0, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL
 static caffe2::NetDef _initNet, _predictNet;
 static caffe2::Predictor *_predictor = NULL;
 
+static caffe2::NetDef _initNet2, _predictNet2;
+static caffe2::Predictor *_predictor2 = NULL;
+
+static const int SALIENCE_DIM = 320;
+
 
 void init3DImageMesh(unsigned int width, unsigned int height);
 bool initTexture();
@@ -143,38 +148,6 @@ static int compare(const void* a, const void* b)
 }
 
 void initCaffe2() {
-//    char *data = NULL;
-//    std::streampos size;
-
-//    std::ifstream input(resourceDirectory + initNet, std::ios::in|std::ios::binary|std::ios::ate);
-//    if (input.is_open()) {
-//        size = input.tellg();
-//        data = new char[size];
-//        input.seekg (0, std::ios::beg);
-//        input.read (data, size);
-//        input.close();
-//
-//        if (!_initNet.ParseFromArray(data, size)) {
-//            LOGE("Couldn't parse init net from data.\n");
-//        }
-//
-//        delete[] data;
-//    }
-//
-//    std::ifstream input2(resourceDirectory + predictNet, std::ios::in|std::ios::binary|std::ios::ate);
-//    if (input2.is_open()) {
-//        size = input2.tellg();
-//        data = new char[size];
-//        input2.seekg (0, std::ios::beg);
-//        input2.read (data, size);
-//        input2.close();
-//
-//        if (!_predictNet.ParseFromArray(data, size)) {
-//            LOGE("Couldn't parse predict net from data.\n");
-//        }
-//
-//        delete[] data;
-//    }
     bool rs = caffe2::GlobalInit();
 
     CAFFE_ENFORCE(caffe2::ReadProtoFromFile(resourceDirectory+initNet, &_initNet));
@@ -190,6 +163,20 @@ void initCaffe2() {
     }
 
     _predictor = new caffe2::Predictor(_initNet, _predictNet);
+
+    CAFFE_ENFORCE(caffe2::ReadProtoFromFile(resourceDirectory+initNet2, &_initNet2));
+    CAFFE_ENFORCE(caffe2::ReadProtoFromFile(resourceDirectory+predictNet2, &_predictNet2));
+
+    _predictNet2.mutable_device_option()->set_device_type((int) caffe2::CPU);
+    _initNet2.mutable_device_option()->set_device_type((int) caffe2::CPU);
+    for(int i = 0; i < _predictNet2.op_size(); ++i){
+        _predictNet2.mutable_op(i)->mutable_device_option()->set_device_type((int) caffe2::CPU);
+    }
+    for(int i = 0; i < _initNet2.op_size(); ++i){
+        _initNet2.mutable_op(i)->mutable_device_option()->set_device_type((int) caffe2::CPU);
+    }
+
+    _predictor2 = new caffe2::Predictor(_initNet2, _predictNet2);
 }
 
 void updateModelMatrix() {
@@ -321,7 +308,7 @@ bool setupGraphics(int width, int height)
     init3DImageMesh(128, 128);
 
     projectionMatrix = glm::perspective(glm::radians(70.0f), (float) width / height, 1.0f, 1000.0f);
-    cameraPosition = glm::vec3(0, 0, 50);
+    cameraPosition = glm::vec3(0, 0, 25);
     cameraRotation = glm::vec3(0, 0, 0);
     updateViewMatrix();
 
@@ -452,7 +439,13 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
     _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(1, 1)));
 }
 
-bool inferDepth(unsigned char *dataAlbedo, int albedoWidth, int albedoHeight, caffe2::Predictor::TensorList &output_vec) {
+bool inferDepth(unsigned char *dataAlbedo,
+                int albedoWidth,
+                int albedoHeight,
+                float *salienceData,
+                caffe2::Predictor::TensorList &output_vec) {
+//    int currW = albedoWidth;
+//    int currH = albedoHeight;
     cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC4, dataAlbedo);
     cv::Mat srcAlbedoRGB, albedoResized;
 
@@ -472,19 +465,45 @@ bool inferDepth(unsigned char *dataAlbedo, int albedoWidth, int albedoHeight, ca
     cv::cvtColor(srcAlbedo, srcAlbedoRGB, cv::COLOR_RGBA2RGB);
     cv::resize(srcAlbedoRGB, albedoResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_AREA);
 
+    unsigned char salienceDataNorm[SALIENCE_DIM*SALIENCE_DIM];
+    float max = salienceData[0];
+    float min = salienceData[0];
+
+    for (std::size_t i = 1; i < SALIENCE_DIM*SALIENCE_DIM; i++) {
+        if (salienceData[i] > max) {
+            max = salienceData[i];
+        }
+        if (salienceData[i] < min) {
+            min = salienceData[i];
+        }
+    }
+    for (std::size_t i = 0; i < SALIENCE_DIM*SALIENCE_DIM; i++) {
+        salienceData[i] = exp(salienceData[i]);
+        salienceData[i] = sqrt((salienceData[i] - min) / (max - min));
+        salienceData[i] = (log2(0.01f*salienceData[i] + 1.0f) / log2(0.01f * max + 1.0f)) * salienceData[i];
+
+        salienceDataNorm[i] = (unsigned char) (salienceData[i] * 255);
+    }
+
+    cv::Mat salience(SALIENCE_DIM, SALIENCE_DIM, CV_8UC1, salienceDataNorm);
+    cv::Mat salienceResized;
+    cv::resize(salience, salienceResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_AREA);
+
     caffe2::TensorCPU input(caffe2::DeviceType::CPU);
     input.Resize(std::vector<int>({1, 3, albedoHeight, albedoWidth}));
 
     float *dataCHW = input.mutable_data<float>();
     for (std::size_t i = 0; i < albedoHeight; i++) {
         for (std::size_t j = 0; j < albedoWidth; j++) {
-            dataCHW[0 * albedoHeight * albedoWidth + albedoWidth*i + j] =
+            float salienceF = (float) salienceResized.data[i * albedoWidth + j] / 255.0f;
+
+            dataCHW[0 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
                     (float) (albedoResized.data[3*(i * albedoWidth + j) + 0]) / 255.0f;
 
-            dataCHW[1 * albedoHeight * albedoWidth + albedoWidth*i + j] =
+            dataCHW[1 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
                     (float) (albedoResized.data[3*(i * albedoWidth + j) + 1]) / 255.0f;
 
-            dataCHW[2 * albedoHeight * albedoWidth + albedoWidth*i + j] =
+            dataCHW[2 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
                     (float) (albedoResized.data[3*(i * albedoWidth + j) + 2]) / 255.0f;
         }
     }
@@ -503,10 +522,8 @@ bool inferSalience(unsigned char *dataAlbedo, int albedoWidth, int albedoHeight,
     cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC4, dataAlbedo);
     cv::Mat srcAlbedoRGB, albedoResized;
 
-    float aspectRatio = (float) albedoWidth / albedoHeight;
-
-    albedoWidth = 320;
-    albedoHeight = 320;
+    albedoWidth = SALIENCE_DIM;
+    albedoHeight = SALIENCE_DIM;
 
     cv::cvtColor(srcAlbedo, srcAlbedoRGB, cv::COLOR_RGBA2RGB);
     cv::resize(srcAlbedoRGB, albedoResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_AREA);
@@ -539,7 +556,7 @@ bool inferSalience(unsigned char *dataAlbedo, int albedoWidth, int albedoHeight,
     omp_set_dynamic(0);     // Explicitly disable dynamic teams
     omp_set_num_threads(4); // Use 4 threads for all consecutive parallel regions
 
-    bool rs = (*_predictor)(input_vec, &output_vec);
+    bool rs = (*_predictor2)(input_vec, &output_vec);
 
     return true;
 }
@@ -574,56 +591,59 @@ bool initTexture() {
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 
     int width, height, chn;
-    unsigned char *data = NULL;//stbi_load(depthFullFilename.c_str(), &width, &height, &chn, 0);
-//    if (data == NULL) {
-//        LOGE("%s not found", depthFullFilename.c_str());
-//        return false;
-//    }
+    unsigned char *data = NULL;
 
     caffe2::Predictor::TensorList output_vec, output_vec2;
+    float *salienceData = NULL;
 
-    
+    bool rs = inferSalience(dataAlbedo, albedoWidth, albedoHeight, output_vec2);
+    if (rs == true && output_vec2.size() >= 1) {
+        const caffe2::TensorCPU &output = output_vec2[0];
+        const auto &sizes = output.sizes();
 
-    bool rs = inferDepth(dataAlbedo, albedoWidth, albedoHeight, output_vec);
+        int salienceHeight = sizes[2];
+        int salienceWidth = sizes[3];
 
-    if (rs == true) {
-        if (output_vec.size() >= 1) {
-            const caffe2::TensorCPU &output = output_vec[0];
-            const auto &sizes = output.sizes();
+        salienceData = output.template data<float>();
+    }
 
-            height = sizes[1];
-            width = sizes[2];
-            chn = 1;
+    rs = inferDepth(dataAlbedo, albedoWidth, albedoHeight, salienceData, output_vec);
+    if (rs == true && output_vec.size() >= 1) {
+        const caffe2::TensorCPU &output = output_vec[0];
+        const auto &sizes = output.sizes();
 
-            float *depthData = output.template data<float>();
-            std::size_t totalDim = height * width;
-            depthData[0] = exp(depthData[0]);
-            float min = depthData[0];
-            float max = depthData[0];
+        height = sizes[1];
+        width = sizes[2];
+        chn = 1;
 
-            data = new unsigned char[height * width];
+        float *depthData = output.template data<float>();
+        std::size_t totalDim = height * width;
+        depthData[0] = exp(depthData[0]);
+        float min = depthData[0];
+        float max = depthData[0];
 
-            for (std::size_t i = 1; i < totalDim; i++) {
-                depthData[i] = exp(depthData[i]);
-                if (min > depthData[i]) {
-                    min = depthData[i];
-                }
-                if (max < depthData[i]) {
-                    max = depthData[i];
-                }
+        data = new unsigned char[height * width];
+
+        for (std::size_t i = 1; i < totalDim; i++) {
+            depthData[i] = exp(depthData[i]);
+            if (min > depthData[i]) {
+                min = depthData[i];
             }
-
-            for (std::size_t i = 0; i < totalDim; i++) {
-                depthData[i] = sqrt((depthData[i] - min) / (max - min)) * 255;
-                data[i] = (unsigned char) depthData[i];
+            if (max < depthData[i]) {
+                max = depthData[i];
             }
+        }
+
+        for (std::size_t i = 0; i < totalDim; i++) {
+            depthData[i] = sqrt((depthData[i] - min) / (max - min)) * 255;
+            data[i] = (unsigned char) depthData[i];
         }
     }
 
     unsigned char *dataCopy = new unsigned char[width * height];
     memcpy(dataCopy, data, width*height*sizeof(unsigned char));
 
-    float medianEmpiric = 0.5f;
+    float medianEmpiric = 0.7f;
     qsort(dataCopy, (std::size_t) width*height, sizeof(unsigned char), compare);
     unsigned char median = (unsigned char) (medianEmpiric * dataCopy[width*height / 2]);
     unsigned char minimum = dataCopy[0];
@@ -631,7 +651,7 @@ bool initTexture() {
     delete[] dataCopy;
 
     float C = (float) minimum / 255 + 0.01f;
-    float XEmpiric = 30;
+    float XEmpiric = 50;
     for (std::size_t i = 0; i < width*height; i++) {
         float dataF = (float) data[i];
         float dataLog = (log2(C*dataF + 1.0f) / log2(C * maximum + 1.0f)) * dataF;
@@ -794,6 +814,9 @@ extern "C"
 
         AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), initNet.c_str());
         AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), predictNet.c_str());
+
+        AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), initNet2.c_str());
+        AndroidPlatform::getAndroidAsset(env, resourceDirectory.c_str(), predictNet2.c_str());
 
         // init networks
         initCaffe2();

@@ -32,7 +32,7 @@ void main()
     vec4 v4Texel = texture2D(u_AlbedoTexture, v_v2UV);
     vec4 mask = texture2D(u_MaskTexture, v_v2UV);
 
-    if (mask.r < 0.95)
+    if (mask.r < 0.99)
         discard;
 
     gl_FragColor = v4Texel;
