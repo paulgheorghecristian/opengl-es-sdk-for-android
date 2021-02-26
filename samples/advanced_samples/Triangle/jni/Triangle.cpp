@@ -43,6 +43,7 @@
 
 
 #include <opencv2/core/mat.hpp>
+#include <opencv2/core.hpp>
 
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
@@ -69,7 +70,7 @@ string fragmentShaderFilename = "Triangle_triangle.frag";
 string simpleVSFilename = "Simple.vert";
 string simpleFSFilename = "Simple.frag";
 
-string albedoFilename = "albedo.jpg";
+string albedoFilename = "photo.jpg";
 string depthFilename = "depth.png";
 
 string predictNet = "tiefenrausch.pb";
@@ -132,6 +133,7 @@ bool inferSalience(unsigned char *dataAlbedo,
                    int albedoWidth,
                    int albedoHeight,
                    caffe2::Predictor::TensorList &output_vec);
+void fillHoles(cv::Mat &in, cv::Mat &out);
 
 
 static int compare(const void* a, const void* b)
@@ -308,13 +310,13 @@ bool setupGraphics(int width, int height)
     init3DImageMesh(128, 128);
 
     projectionMatrix = glm::perspective(glm::radians(70.0f), (float) width / height, 1.0f, 1000.0f);
-    cameraPosition = glm::vec3(0, 0, 25);
+    cameraPosition = glm::vec3(0, 0, 30);
     cameraRotation = glm::vec3(0, 0, 0);
     updateViewMatrix();
 
     position = glm::vec3(0, 0, -40);
     rotation = glm::vec3(0);
-    scale = glm::vec3(20, 40, 20);
+    scale = glm::vec3(20, 40, 25);
     updateModelMatrix();
 
     GL_CHECK(glUseProgram(programID));
@@ -347,8 +349,8 @@ void renderFrame(jfloat *gyroQuat)
     if (gyroQuat != NULL) {
         glm::quat gyroQuatGLM(gyroQuat[0], gyroQuat[1], gyroQuat[2], gyroQuat[3]);
         glm::vec3 euler = glm::eulerAngles(gyroQuatGLM);
-        rotation = glm::vec3(0, rotY, 0);
-        rotY -= euler.y * 0.8f;
+        rotation = glm::vec3(2.0f*glm::cos(rotY), 2.0f*glm::sin(rotY), 0);
+        rotY += 0.07f;
         updateModelMatrix();
     }
 
@@ -430,13 +432,13 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
         }
     }
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(0, 1)));
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f)*1.2f, glm::vec2(0, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(1, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f)*2.5f, glm::vec2(0, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f)*2.5f, glm::vec2(0, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*2.5f, glm::vec2(1, 1)));
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f)*1.2f, glm::vec2(0, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f)*1.2f, glm::vec2(1, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*1.2f, glm::vec2(1, 1)));
+    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f)*2.5f, glm::vec2(0, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f)*2.5f, glm::vec2(1, 0)));
+    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f)*2.5f, glm::vec2(1, 1)));
 }
 
 bool inferDepth(unsigned char *dataAlbedo,
@@ -444,8 +446,8 @@ bool inferDepth(unsigned char *dataAlbedo,
                 int albedoHeight,
                 float *salienceData,
                 caffe2::Predictor::TensorList &output_vec) {
-//    int currW = albedoWidth;
-//    int currH = albedoHeight;
+    int currW = albedoWidth;
+    int currH = albedoHeight;
     cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC4, dataAlbedo);
     cv::Mat srcAlbedoRGB, albedoResized;
 
@@ -466,45 +468,67 @@ bool inferDepth(unsigned char *dataAlbedo,
     cv::resize(srcAlbedoRGB, albedoResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_AREA);
 
     unsigned char salienceDataNorm[SALIENCE_DIM*SALIENCE_DIM];
-    float max = salienceData[0];
-    float min = salienceData[0];
-
-    for (std::size_t i = 1; i < SALIENCE_DIM*SALIENCE_DIM; i++) {
-        if (salienceData[i] > max) {
-            max = salienceData[i];
-        }
-        if (salienceData[i] < min) {
-            min = salienceData[i];
-        }
-    }
     for (std::size_t i = 0; i < SALIENCE_DIM*SALIENCE_DIM; i++) {
-        salienceData[i] = exp(salienceData[i]);
-        salienceData[i] = sqrt((salienceData[i] - min) / (max - min));
-        salienceData[i] = (log2(0.01f*salienceData[i] + 1.0f) / log2(0.01f * max + 1.0f)) * salienceData[i];
-
-        salienceDataNorm[i] = (unsigned char) (salienceData[i] * 255);
+        if (salienceData != NULL) {
+            salienceDataNorm[i] = (unsigned char) (salienceData[i] * 255);
+        } else {
+            salienceDataNorm[i] = 255;
+        }
     }
 
     cv::Mat salience(SALIENCE_DIM, SALIENCE_DIM, CV_8UC1, salienceDataNorm);
-    cv::Mat salienceResized;
+    cv::Mat salienceResized, salienceBlur, salienceFilled;
     cv::resize(salience, salienceResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_AREA);
+
+    fillHoles(salienceResized, salienceFilled);
 
     caffe2::TensorCPU input(caffe2::DeviceType::CPU);
     input.Resize(std::vector<int>({1, 3, albedoHeight, albedoWidth}));
 
+//    for (std::size_t i = 0; i < currH; i++) {
+//        for (std::size_t j = 0; j < currW; j++) {
+//            float salienceF = (float) salienceFilled.data[i * currW + j] / 255.0f;
+//
+//            if (salienceF > 0.8) {
+//            dataAlbedo[4*(i*currW+j)+0] *= salienceF;
+//            dataAlbedo[4*(i*currW+j)+1] *= salienceF;
+//            dataAlbedo[4*(i*currW+j)+2] *= salienceF;
+////            dataAlbedo[4*(i*currW+j)+0] = salienceResized.data[i * currW + j];
+////            dataAlbedo[4*(i*currW+j)+1] = salienceResized.data[i * currW + j];
+////            dataAlbedo[4*(i*currW+j)+2] = salienceResized.data[i * currW + j];
+//            } else {
+//                dataAlbedo[4*(i*currW+j)+0] = 127;
+//                dataAlbedo[4*(i*currW+j)+1] = 127;
+//                dataAlbedo[4*(i*currW+j)+2] = 127;
+//            }
+//
+//            dataAlbedo[4*(i*currW+j)+0] = salienceFilled.data[i * currW + j];
+//            dataAlbedo[4*(i*currW+j)+1] = salienceFilled.data[i * currW + j];
+//            dataAlbedo[4*(i*currW+j)+2] = salienceFilled.data[i * currW + j];
+//        }
+//    }
+
     float *dataCHW = input.mutable_data<float>();
     for (std::size_t i = 0; i < albedoHeight; i++) {
         for (std::size_t j = 0; j < albedoWidth; j++) {
-            float salienceF = (float) salienceResized.data[i * albedoWidth + j] / 255.0f;
+            float salienceF = (float) salienceFilled.data[i * albedoWidth + j] / 255.0f;
 
-            dataCHW[0 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
-                    (float) (albedoResized.data[3*(i * albedoWidth + j) + 0]) / 255.0f;
+            if (salienceF > 0.6) {
+                dataCHW[0 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
+                                      (float) (albedoResized.data[3*(i * albedoWidth + j) + 0]) / 255.0f;
 
-            dataCHW[1 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
-                    (float) (albedoResized.data[3*(i * albedoWidth + j) + 1]) / 255.0f;
+                dataCHW[1 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
+                                      (float) (albedoResized.data[3*(i * albedoWidth + j) + 1]) / 255.0f;
 
-            dataCHW[2 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
-                    (float) (albedoResized.data[3*(i * albedoWidth + j) + 2]) / 255.0f;
+                dataCHW[2 * albedoHeight * albedoWidth + albedoWidth*i + j] = salienceF *
+                                      (float) (albedoResized.data[3*(i * albedoWidth + j) + 2]) / 255.0f;
+            } else {
+                dataCHW[0 * albedoHeight * albedoWidth + albedoWidth*i + j] = 0.3;
+                dataCHW[1 * albedoHeight * albedoWidth + albedoWidth*i + j] = 0.3;
+                dataCHW[2 * albedoHeight * albedoWidth + albedoWidth*i + j] = 0.3;
+            }
+
+
         }
     }
 
@@ -559,6 +583,19 @@ bool inferSalience(unsigned char *dataAlbedo, int albedoWidth, int albedoHeight,
     bool rs = (*_predictor2)(input_vec, &output_vec);
 
     return true;
+}
+
+void fillHoles(cv::Mat &in, cv::Mat &out) {
+    cv::Mat thresh;
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+
+    cv::threshold(in, thresh, 20, 255, cv::THRESH_BINARY);
+    cv::findContours(thresh, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
+
+    out = in.clone();
+
+    cv::fillPoly(out, contours, cv::Scalar(255,255,255));
 }
 
 bool initTexture() {
@@ -643,7 +680,7 @@ bool initTexture() {
     unsigned char *dataCopy = new unsigned char[width * height];
     memcpy(dataCopy, data, width*height*sizeof(unsigned char));
 
-    float medianEmpiric = 0.7f;
+    float medianEmpiric = 0.5f;
     qsort(dataCopy, (std::size_t) width*height, sizeof(unsigned char), compare);
     unsigned char median = (unsigned char) (medianEmpiric * dataCopy[width*height / 2]);
     unsigned char minimum = dataCopy[0];
@@ -674,7 +711,7 @@ bool initTexture() {
     cv::Mat dst, thresh, threshDilated, threshEroded;
 
     // sharpen image
-    cv::bilateralFilter(src, dst, 15, 75, 75);
+    cv::bilateralFilter(src, dst, 15, 150, 150);
 
     // for contour detection
     std::vector<std::vector<cv::Point>> contours;
