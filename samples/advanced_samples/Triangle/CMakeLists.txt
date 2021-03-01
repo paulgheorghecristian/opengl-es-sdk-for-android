@@ -3,3 +3,5 @@ get_filename_component(sample ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 add_sample(${sample} "${sources}")
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/caffe2)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/include/torch)
+
