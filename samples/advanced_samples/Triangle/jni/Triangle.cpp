@@ -344,10 +344,10 @@ bool setupGraphics(int width, int height)
     cameraRotation = glm::vec3(0, 0, 0);
     updateViewMatrix();
 
-    position = glm::vec3(0, 0, -5);
+    position = glm::vec3(0, 0, -30);
     rotation = glm::vec3(0);
     scale = glm::vec3(20, 40, 30);
-    position2 = glm::vec3(0, 0, -50);
+    position2 = glm::vec3(0, 0, -40);
     rotation2 = glm::vec3(0);
     scale2 = glm::vec3(20, 40, 30);
     updateModelMatrix();
@@ -383,11 +383,14 @@ void renderFrame(jfloat *gyroQuat)
         glm::quat gyroQuatGLM(gyroQuat[0], gyroQuat[1], gyroQuat[2], gyroQuat[3]);
         glm::vec3 euler = glm::eulerAngles(gyroQuatGLM);
         //cameraRotation = glm::vec3(0.1f*glm::cos(rotY), 0.1f*glm::sin(rotY), 0);
-        rotation = glm::vec3(5.0f*glm::cos(rotY), 5.0f*glm::sin(rotY), 0);
-        rotation2 = glm::vec3(1.0f*glm::cos(rotY), 1.0f*glm::sin(rotY), 0);
+        //rotation = glm::vec3(5.0f*glm::cos(rotY), 5.0f*glm::sin(rotY), 0);
+        //rotation2 = glm::vec3(1.0f*glm::cos(rotY), 1.0f*glm::sin(rotY), 0);
+        cameraPosition = glm::vec3(3.0f*glm::cos(rotY), 3.0f*glm::sin(rotY), 40);
+        cameraRotation = glm::vec3(0, rotY, rotY)*0.05f;
         rotY += 0.05f;
         updateModelMatrix();
         updateViewMatrix();
+        viewMatrix = glm::lookAt(cameraPosition, glm::vec3(0.0f), glm::vec3(0, 1, 0));
     }
 
     glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
@@ -598,8 +601,8 @@ bool initTexture() {
     unsigned char *dataAlbedo = stbi_load(albedoFullFilename.c_str(), &albedoWidth, &albedoHeight, &albedoChn, STBI_rgb_alpha);
 
     float ratio = (float) albedoWidth / albedoHeight;
-    scale = glm::vec3(28.0f*ratio, 28.0f, 8.0f);
-    scale2 = glm::vec3(50.0f*ratio, 50.0f, 1.0f);
+    scale = glm::vec3(35.0f*ratio, 35.0f, 10.0f);
+    scale2 = glm::vec3(40.0f*ratio, 40.0f, 1.0f);
 
     if (dataAlbedo == NULL) {
         LOGE("%s not found", albedoFullFilename.c_str());
@@ -677,7 +680,7 @@ bool initTexture() {
     float C = 0.1f;
     for (std::size_t i = 0; i < width*height; i++) {
         float dataF = (float) data[i];
-        float dataLog = dataF * (log2(C*dataF + 1.0f) / log2(C * 10 + 1.0f));
+        float dataLog = dataF * (log2(C*dataF + 1.0f) / log2(C * 100 + 1.0f));
 
         if (dataLog < 0)
             dataLog = 0;
@@ -686,6 +689,7 @@ bool initTexture() {
 
         data[i] = (unsigned char) dataLog;
     }
+
 
     cv::Mat src(height, width, CV_8UC1, data);
     cv::Mat dst, thresh, threshDilated, threshEroded;
@@ -709,8 +713,8 @@ bool initTexture() {
 
     fillHoles(salienceResized, salienceResized);
     cv::dilate(salienceResized, salienceResized,
-               cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5)));
-    cv::GaussianBlur(salienceResized, salienceResized, cv::Size(7, 7), 0);
+               cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7)));
+    cv::GaussianBlur(salienceResized, salienceResized, cv::Size(5, 5), 0);
     cv::erode(salienceResized, thresh,
                cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11, 11)));
     // END CREATE THRESH
