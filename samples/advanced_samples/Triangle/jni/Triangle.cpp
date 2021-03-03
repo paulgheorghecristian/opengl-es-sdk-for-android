@@ -69,8 +69,8 @@ string resourceDirectory = "/data/data/com.arm.malideveloper.openglessdk.triangl
 string vertexShaderFilename = "3DMesh.vert";
 string fragmentShaderFilename = "3DMesh.frag";
 
-string simpleVSFilename = "Simple.vert";
-string simpleFSFilename = "Simple.frag";
+string simpleVSFilename = "bg.vert";
+string simpleFSFilename = "bg.frag";
 
 string albedoFilename = "photo.jpg";
 string depthFilename = "depth.png";
@@ -101,6 +101,8 @@ GLint iLocViewMatrix = -1;
 GLint iLocModelMatrix = -1;
 
 GLint iLocAlbedoTexture2 = -1;
+GLint iLocDepthTexture2 = -1;
+GLint iLocMaskTexture2 = -1;
 GLint iLocProjectionMatrix2 = -1;
 GLint iLocViewMatrix2 = -1;
 GLint iLocModelMatrix2 = -1;
@@ -296,8 +298,6 @@ bool setupGraphics(int width, int height)
     GL_CHECK(glUniform1i(iLocAlbedoTexture, 0));
     iLocDepthTexture = GL_CHECK(glGetUniformLocation(programID, "u_DepthTexture"));
     GL_CHECK(glUniform1i(iLocDepthTexture, 1));
-    iLocDepthTexture = GL_CHECK(glGetUniformLocation(programID, "u_DepthTexture"));
-    GL_CHECK(glUniform1i(iLocDepthTexture, 1));
     iLocMaskTexture = GL_CHECK(glGetUniformLocation(programID, "u_MaskTexture"));
     GL_CHECK(glUniform1i(iLocMaskTexture, 2));
 
@@ -330,6 +330,10 @@ bool setupGraphics(int width, int height)
 
     iLocAlbedoTexture2 = GL_CHECK(glGetUniformLocation(programID2, "u_AlbedoTexture"));
     GL_CHECK(glUniform1i(iLocAlbedoTexture2, 0));
+    iLocDepthTexture2 = GL_CHECK(glGetUniformLocation(programID2, "u_DepthTexture"));
+    GL_CHECK(glUniform1i(iLocDepthTexture2, 1));
+    iLocMaskTexture2 = GL_CHECK(glGetUniformLocation(programID2, "u_MaskTexture"));
+    GL_CHECK(glUniform1i(iLocMaskTexture2, 2));
 
     iLocProjectionMatrix2 = GL_CHECK(glGetUniformLocation(programID2, "projectionMatrix"));
     iLocViewMatrix2 = GL_CHECK(glGetUniformLocation(programID2, "viewMatrix"));
@@ -347,7 +351,7 @@ bool setupGraphics(int width, int height)
     position = glm::vec3(0, 0, -30);
     rotation = glm::vec3(0);
     scale = glm::vec3(20, 40, 30);
-    position2 = glm::vec3(0, 0, -40);
+    position2 = glm::vec3(0, 0, -30);
     rotation2 = glm::vec3(0);
     scale2 = glm::vec3(20, 40, 30);
     updateModelMatrix();
@@ -385,9 +389,9 @@ void renderFrame(jfloat *gyroQuat)
         //cameraRotation = glm::vec3(0.1f*glm::cos(rotY), 0.1f*glm::sin(rotY), 0);
         //rotation = glm::vec3(5.0f*glm::cos(rotY), 5.0f*glm::sin(rotY), 0);
         //rotation2 = glm::vec3(1.0f*glm::cos(rotY), 1.0f*glm::sin(rotY), 0);
-        cameraPosition = glm::vec3(3.0f*glm::cos(rotY), 3.0f*glm::sin(rotY), 40);
-        cameraRotation = glm::vec3(0, rotY, rotY)*0.05f;
-        rotY += 0.05f;
+        cameraPosition = glm::vec3(3.0f*glm::cos(rotY), 3.0f*glm::sin(rotY), 60);
+        cameraRotation = glm::vec3(0, rotY, rotY)*0.02f;
+        rotY += 0.1f;
         updateModelMatrix();
         updateViewMatrix();
         viewMatrix = glm::lookAt(cameraPosition, glm::vec3(0.0f), glm::vec3(0, 1, 0));
@@ -422,16 +426,22 @@ void renderFrame(jfloat *gyroQuat)
     glUniformMatrix4fv(iLocViewMatrix2, 1, GL_FALSE, glm::value_ptr(viewMatrix));
     glUniformMatrix4fv(iLocModelMatrix2, 1, GL_FALSE, glm::value_ptr(modelMatrix2));
 
-    glBindBuffer(GL_ARRAY_BUFFER, vboBG);
+    glBindBuffer(GL_ARRAY_BUFFER, vboBG[VERTEX]);
     glEnableVertexAttribArray(iLocPosition2);
     glVertexAttribPointer(iLocPosition2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) 0);
     glEnableVertexAttribArray(iLocUV2);
     glVertexAttribPointer(iLocUV2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) (sizeof(glm::vec3)));
 
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboBG[INDEX]);
+
     GL_CHECK(glActiveTexture(GL_TEXTURE0));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
+    GL_CHECK(glActiveTexture(GL_TEXTURE1));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureID));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
 
-    GL_CHECK(glDrawArrays(GL_TRIANGLES, 0, _bgVertices.size()));
+    GL_CHECK(glDrawElements(GL_TRIANGLES, _bgIndices.size(), GL_UNSIGNED_SHORT, (void *) 0));
 
     /* Draw fonts. */
     //text->draw();
@@ -452,6 +462,7 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
             vertex.position = glm::vec3(currX, currY, 0);
             vertex.UV = glm::vec2((currX + 1) * 0.5, (currY + 1) * 0.5);
             _3DImageMeshVertices.push_back(vertex);
+            _bgVertices.push_back(vertex);
 
             currX += RECT_WIDTH;
         }
@@ -468,16 +479,24 @@ void init3DImageMesh(unsigned int numRectX, unsigned int numRectY) {
             _3DImageMeshIndices.push_back(start+0);
             _3DImageMeshIndices.push_back(start+numRectX+2);
             _3DImageMeshIndices.push_back(start+numRectX+1);
+
+            _bgIndices.push_back(start+0);
+            _bgIndices.push_back(start+1);
+            _bgIndices.push_back(start+numRectX+2);
+
+            _bgIndices.push_back(start+0);
+            _bgIndices.push_back(start+numRectX+2);
+            _bgIndices.push_back(start+numRectX+1);
         }
     }
 
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec2(0, 1)));
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
-
-    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f), glm::vec2(1, 0)));
-    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
+//    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec2(0, 1)));
+//    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
+//    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
+//
+//    _bgVertices.push_back(Vertex(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec2(0, 0)));
+//    _bgVertices.push_back(Vertex(glm::vec3(1.0f, -1.0f, 0.0f), glm::vec2(1, 0)));
+//    _bgVertices.push_back(Vertex(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec2(1, 1)));
 }
 
 bool inferDepth(unsigned char *dataAlbedo,
@@ -601,8 +620,8 @@ bool initTexture() {
     unsigned char *dataAlbedo = stbi_load(albedoFullFilename.c_str(), &albedoWidth, &albedoHeight, &albedoChn, STBI_rgb_alpha);
 
     float ratio = (float) albedoWidth / albedoHeight;
-    scale = glm::vec3(35.0f*ratio, 35.0f, 10.0f);
-    scale2 = glm::vec3(40.0f*ratio, 40.0f, 1.0f);
+    scale = glm::vec3(45.0f*ratio, 45.0f, 25.0f);
+    scale2 = glm::vec3(40.0f*ratio, 40.0f, 20.0f);
 
     if (dataAlbedo == NULL) {
         LOGE("%s not found", albedoFullFilename.c_str());
@@ -680,7 +699,7 @@ bool initTexture() {
     float C = 0.1f;
     for (std::size_t i = 0; i < width*height; i++) {
         float dataF = (float) data[i];
-        float dataLog = dataF * (log2(C*dataF + 1.0f) / log2(C * 100 + 1.0f));
+        float dataLog = dataF * (log2(C*dataF + 1.0f) / log2(C * maximum + 1.0f));
 
         if (dataLog < 0)
             dataLog = 0;
@@ -802,14 +821,21 @@ bool initTexture() {
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 
-    glGenBuffers(1, &vboBG);
+    glGenBuffers(NUM_VBOS, vboBG);
     glBindBuffer(GL_ARRAY_BUFFER,
-                 vboBG);
+                 vboBG[VERTEX]);
     glBufferData(GL_ARRAY_BUFFER,
                  sizeof(Vertex) * _bgVertices.size(),
                  &_bgVertices[0],
                  GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboBG[INDEX]);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 sizeof(unsigned int) * _bgIndices.size(),
+                 &_bgIndices[0],
+                 GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
     cv::Mat albedoInpainted, threshResized, albedoResized;
     cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC4, dataAlbedo);

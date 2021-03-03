@@ -71,6 +71,7 @@ std::vector<Vertex> _3DImageMeshVertices;
 std::vector<unsigned short> _3DImageMeshIndices;
 
 std::vector<Vertex> _bgVertices;
+std::vector<unsigned short> _bgIndices;
 
 enum VBOs{
     VERTEX = 0, INDEX, NUM_VBOS
@@ -78,7 +79,7 @@ enum VBOs{
 GLuint vboHandles[NUM_VBOS];
 GLuint albedoTextureID = 0, depthTextureID = 0, maskTextureID = 0;
 
-GLuint vboBG = 0;
+GLuint vboBG[NUM_VBOS];
 GLuint albedoBGTexture = 0;
 
 #endif /* TRIANGLE_H */
