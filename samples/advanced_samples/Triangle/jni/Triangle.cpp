@@ -349,10 +349,10 @@ bool setupGraphics(int width, int height)
     updateViewMatrix();
 
     position = glm::vec3(0, 0, -30);
-    rotation = glm::vec3(0);
+    rotation = glm::vec3(0, 0, 0);
     scale = glm::vec3(20, 40, 30);
     position2 = glm::vec3(0, 0, -30);
-    rotation2 = glm::vec3(0);
+    rotation2 = glm::vec3(0.0f, 0, 0);
     scale2 = glm::vec3(20, 40, 30);
     updateModelMatrix();
 
@@ -389,9 +389,9 @@ void renderFrame(jfloat *gyroQuat)
         //cameraRotation = glm::vec3(0.1f*glm::cos(rotY), 0.1f*glm::sin(rotY), 0);
         //rotation = glm::vec3(5.0f*glm::cos(rotY), 5.0f*glm::sin(rotY), 0);
         //rotation2 = glm::vec3(1.0f*glm::cos(rotY), 1.0f*glm::sin(rotY), 0);
-        cameraPosition = glm::vec3(3.0f*glm::cos(rotY), 3.0f*glm::sin(rotY), 60);
+        cameraPosition = glm::vec3(10.0f*glm::cos(rotY), 8.0f*glm::sin(rotY), 60);
         cameraRotation = glm::vec3(0, rotY, rotY)*0.02f;
-        rotY += 0.1f;
+        rotY += 0.04f;
         updateModelMatrix();
         updateViewMatrix();
         viewMatrix = glm::lookAt(cameraPosition, glm::vec3(0.0f), glm::vec3(0, 1, 0));
@@ -640,8 +640,8 @@ bool initTexture() {
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
     int width, height, chn;
     unsigned char *data = NULL;
@@ -687,35 +687,7 @@ bool initTexture() {
         }
     }
 
-    unsigned char *dataCopy = new unsigned char[width * height];
-    memcpy(dataCopy, data, width*height*sizeof(unsigned char));
-
-    qsort(dataCopy, (std::size_t) width*height, sizeof(unsigned char), compare);
-    unsigned char median = (dataCopy[width*height / 2]);
-    unsigned char minimum = dataCopy[0];
-    unsigned char maximum = dataCopy[width*height - 1];
-    delete[] dataCopy;
-
-    float C = 0.1f;
-    for (std::size_t i = 0; i < width*height; i++) {
-        float dataF = (float) data[i];
-        float dataLog = dataF * (log2(C*dataF + 1.0f) / log2(C * maximum + 1.0f));
-
-        if (dataLog < 0)
-            dataLog = 0;
-        if (dataLog > 255)
-            dataLog = 255;
-
-        data[i] = (unsigned char) dataLog;
-    }
-
-
-    cv::Mat src(height, width, CV_8UC1, data);
-    cv::Mat dst, thresh, threshDilated, threshEroded;
-
-    // sharpen image
-    cv::bilateralFilter(src, dst, 15, 150, 150);
-
+    cv::Mat thresh, threshDilated, threshEroded;
     // CREATE THRESH
     unsigned char salienceDataNorm[SALIENCE_DIM*SALIENCE_DIM];
     for (std::size_t i = 0; i < SALIENCE_DIM*SALIENCE_DIM; i++) {
@@ -735,8 +707,56 @@ bool initTexture() {
                cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7)));
     cv::GaussianBlur(salienceResized, salienceResized, cv::Size(5, 5), 0);
     cv::erode(salienceResized, thresh,
-               cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11, 11)));
+              cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11, 11)));
     // END CREATE THRESH
+
+    unsigned char *dataCopy = new unsigned char[width * height];
+    memcpy(dataCopy, data, width*height*sizeof(unsigned char));
+
+    qsort(dataCopy, (std::size_t) width*height, sizeof(unsigned char), compare);
+    unsigned char median = (dataCopy[width*height / 2]);
+    unsigned char minimum = dataCopy[0];
+    unsigned char maximum = dataCopy[width*height - 1];
+    delete[] dataCopy;
+
+    int mean = 0;
+    std::size_t count = 0;
+
+    for (std::size_t i = 0; i < width*height; i++) {
+        if (thresh.data[i] > 200) {
+            mean += data[i];
+            count++;
+        }
+    }
+
+    mean = (unsigned char) (0.5f*mean / count);
+
+    float C = 0.001f;
+    float C2 = 0.001f;
+    for (std::size_t i = 0; i < width*height; i++) {
+        float dataF = (float) data[i];
+        float dataLog;// = dataF * (log2(C*dataF + 1.0f) / log2(C * maximum + 1.0f));
+
+        if (data[i] >= mean || thresh.data[i] > 200) {
+            dataLog = dataF * (log2(C * dataF + 1.0f) / log2(C * maximum + 1.0f));
+        } else {
+            dataLog = dataF * pow(10.0f, C2*dataF+1.0f)/pow(10.0f, C2*maximum+1.0f);
+        }
+
+        if (dataLog < 0)
+            dataLog = 0;
+        if (dataLog > 255)
+            dataLog = 255;
+
+        data[i] = (unsigned char) dataLog;
+    }
+
+
+    cv::Mat src(height, width, CV_8UC1, data);
+    cv::Mat dst;
+
+    // sharpen image
+    cv::bilateralFilter(src, dst, 15, 150, 150);
 
     // for contour detection
     std::vector<std::vector<cv::Point>> contours;
@@ -803,8 +823,8 @@ bool initTexture() {
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
     //stbi_image_free(data);
     delete[] data;
@@ -818,8 +838,8 @@ bool initTexture() {
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
     glGenBuffers(NUM_VBOS, vboBG);
     glBindBuffer(GL_ARRAY_BUFFER,
@@ -859,8 +879,8 @@ bool initTexture() {
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
-    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
     stbi_image_free(dataAlbedo);
 
