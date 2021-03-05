@@ -77,7 +77,7 @@ enum VBOs{
     VERTEX = 0, INDEX, NUM_VBOS
 };
 GLuint vboHandles[NUM_VBOS];
-GLuint albedoTextureID = 0, depthTextureID = 0, maskTextureID = 0;
+GLuint albedoTextureID = 0, depthTextureID = 0, maskTextureID = 0, depthTextureBGID = 0;
 
 GLuint vboBG[NUM_VBOS];
 GLuint albedoBGTexture = 0;

@@ -137,6 +137,7 @@ static const int SALIENCE_DIM = 320;
 
 void init3DImageMesh(unsigned int width, unsigned int height);
 bool initTexture();
+void initTorch();
 bool inferDepth(unsigned char *dataAlbedo,
                 int albedoWidth,
                 int albedoHeight,
@@ -146,6 +147,9 @@ bool inferSalience(unsigned char *dataAlbedo,
                     int albedoHeight,
                     torch::jit::IValue &t_out);
 void fillHoles(cv::Mat &in, cv::Mat &out);
+
+float heightNorm = 0.0f;
+glm::vec3 pointOfRotation;
 
 struct JITCallGuard {
     torch::autograd::AutoGradMode no_autograd_guard{false};
@@ -212,7 +216,10 @@ void updateModelMatrix() {
     glm::mat4 R = glm::mat4_cast(glm::quat(glm::radians(rotation)));
     glm::mat4 S = glm::scale(glm::mat4(1.0), scale);
 
-    modelMatrix = T*R*S;
+    glm::mat4 Tc = glm::translate(glm::mat4(1.0), -pointOfRotation);
+    glm::mat4 Tcp = glm::translate(glm::mat4(1.0), pointOfRotation);
+
+    modelMatrix = T*Tcp*R*Tc*S;
 
     glm::mat4 T2 = glm::translate(glm::mat4(1.0), position2);
     glm::mat4 R2 = glm::mat4_cast(glm::quat(glm::radians(rotation2)));
@@ -348,8 +355,8 @@ bool setupGraphics(int width, int height)
     cameraRotation = glm::vec3(0, 0, 0);
     updateViewMatrix();
 
-    position = glm::vec3(0, 0, -30);
-    rotation = glm::vec3(0, 0, 0);
+    position = glm::vec3(0, 0, -24);
+    rotation = glm::vec3(10.0f, 0, 0);
     scale = glm::vec3(20, 40, 30);
     position2 = glm::vec3(0, 0, -30);
     rotation2 = glm::vec3(0.0f, 0, 0);
@@ -437,7 +444,7 @@ void renderFrame(jfloat *gyroQuat)
     GL_CHECK(glActiveTexture(GL_TEXTURE0));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
     GL_CHECK(glActiveTexture(GL_TEXTURE1));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureID));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureBGID));
     GL_CHECK(glActiveTexture(GL_TEXTURE2));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
 
@@ -620,8 +627,9 @@ bool initTexture() {
     unsigned char *dataAlbedo = stbi_load(albedoFullFilename.c_str(), &albedoWidth, &albedoHeight, &albedoChn, STBI_rgb_alpha);
 
     float ratio = (float) albedoWidth / albedoHeight;
-    scale = glm::vec3(45.0f*ratio, 45.0f, 25.0f);
-    scale2 = glm::vec3(40.0f*ratio, 40.0f, 20.0f);
+    scale = glm::vec3(45.0f*ratio, 45.0f, 8.0f);
+    scale2 = glm::vec3(40.0f*ratio, 40.0f, 4.0f);
+    pointOfRotation = glm::vec3(scale.x / 2.0f, scale.y * 2.0f * heightNorm, scale.z);
 
     if (dataAlbedo == NULL) {
         LOGE("%s not found", albedoFullFilename.c_str());
@@ -690,13 +698,20 @@ bool initTexture() {
     cv::Mat thresh, threshDilated, threshEroded;
     // CREATE THRESH
     unsigned char salienceDataNorm[SALIENCE_DIM*SALIENCE_DIM];
+    std::size_t lastI = 0;
     for (std::size_t i = 0; i < SALIENCE_DIM*SALIENCE_DIM; i++) {
         if (salienceData != NULL) {
             salienceDataNorm[i] = (unsigned char) (salienceData[i] * 255);
         } else {
             salienceDataNorm[i] = 255;
         }
+
+        if (salienceData[i] > 0.5) {
+            lastI = i;
+        }
     }
+
+    heightNorm = (float) lastI / SALIENCE_DIM;
 
     cv::Mat salience(SALIENCE_DIM, SALIENCE_DIM, CV_8UC1, salienceDataNorm);
     cv::Mat salienceResized, salienceBlur, salienceFilled;
@@ -711,7 +726,9 @@ bool initTexture() {
     // END CREATE THRESH
 
     unsigned char *dataCopy = new unsigned char[width * height];
+    unsigned char *dataCopy2 = new unsigned char[width * height];
     memcpy(dataCopy, data, width*height*sizeof(unsigned char));
+    memcpy(dataCopy2, data, width*height*sizeof(unsigned char));
 
     qsort(dataCopy, (std::size_t) width*height, sizeof(unsigned char), compare);
     unsigned char median = (dataCopy[width*height / 2]);
@@ -731,8 +748,8 @@ bool initTexture() {
 
     mean = (unsigned char) (0.5f*mean / count);
 
-    float C = 0.001f;
-    float C2 = 0.001f;
+    float C = 0.01f;
+    float C2 = 0.01f;
     for (std::size_t i = 0; i < width*height; i++) {
         float dataF = (float) data[i];
         float dataLog;// = dataF * (log2(C*dataF + 1.0f) / log2(C * maximum + 1.0f));
@@ -764,7 +781,7 @@ bool initTexture() {
     //cv::threshold(dst, thresh, median, 255, cv::THRESH_BINARY);
 
     cv::dilate(thresh, threshDilated,
-                        cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11, 11)));
+                        cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9, 9)));
 //    cv::erode(thresh, threshEroded,
 //               cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
     threshEroded = thresh.clone();
@@ -859,14 +876,26 @@ bool initTexture() {
 
     cv::Mat albedoInpainted, threshResized, albedoResized;
     cv::Mat srcAlbedo(albedoHeight, albedoWidth, CV_8UC4, dataAlbedo);
-    cv::Mat srcAlbedoRGB;
+    cv::Mat srcAlbedoRGB, depthInpainted;
 
     cv::cvtColor(srcAlbedo, srcAlbedoRGB, cv::COLOR_RGBA2RGB);
 
     cv::resize(srcAlbedoRGB, albedoResized, cv::Size(width, height), 0, 0, cv::INTER_LINEAR);
     //cv::resize(thresh, threshResized, cv::Size(albedoWidth, albedoHeight), 0, 0, cv::INTER_LINEAR);
 
-    cv:inpaint(albedoResized, threshDilated, albedoInpainted, 11, cv::INPAINT_TELEA);
+    cv::inpaint(albedoResized, threshDilated, albedoInpainted, 11, cv::INPAINT_TELEA);
+    cv::inpaint(dst, threshDilated, depthInpainted, 11, cv::INPAINT_TELEA);
+    cv::Mat src2(height, width, CV_8UC1, dataCopy2);
+
+    cv::Mat bigmask, smallmask;
+    cv::compare(src2, mean, bigmask, cv::CMP_GE);
+    cv::bitwise_not(bigmask, smallmask);
+
+    cv::Mat albedo1, albedo2, albedoRes;
+    albedoInpainted.copyTo(albedo1, smallmask);
+    cv::GaussianBlur(albedo1, albedo1, cv::Size(11, 11), 0);
+    albedoInpainted.copyTo(albedo2, bigmask);
+    cv::add(albedo1, albedo2, albedoRes);
 
     GL_CHECK(glGenTextures(1, &albedoBGTexture));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
@@ -874,6 +903,19 @@ bool initTexture() {
     GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[albedoChn],
                           albedoInpainted.size().width, albedoInpainted.size().height, 0,
                           pixelFormat[albedoChn], GL_UNSIGNED_BYTE, albedoInpainted.data));
+    delete[] dataCopy2;
+
+    /* Set texture mode. */
+    GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)); /* Default anyway. */
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+
+    GL_CHECK(glGenTextures(1, &depthTextureBGID));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureBGID));
+
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[chn], width, height, 0, pixelFormat[chn], GL_UNSIGNED_BYTE, depthInpainted.data));
 
     /* Set texture mode. */
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
