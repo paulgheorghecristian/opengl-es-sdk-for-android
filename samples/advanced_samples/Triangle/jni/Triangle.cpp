@@ -348,7 +348,7 @@ bool setupGraphics(int width, int height)
 
     GL_CHECK(glViewport(0, 0, width, height));
 
-    init3DImageMesh(128, 128);
+    init3DImageMesh(32, 32);
 
     projectionMatrix = glm::perspective(glm::radians(70.0f), (float) width / height, 1.0f, 5000.0f);
     cameraPosition = glm::vec3(0, 0, 60);
@@ -398,7 +398,7 @@ void renderFrame(jfloat *gyroQuat)
         //rotation2 = glm::vec3(1.0f*glm::cos(rotY), 1.0f*glm::sin(rotY), 0);
         cameraPosition = glm::vec3(10.0f*glm::cos(rotY), 8.0f*glm::sin(rotY), 60);
         cameraRotation = glm::vec3(0, rotY, rotY)*0.02f;
-        rotY += 0.04f;
+        rotY += 0.03f;
         updateModelMatrix();
         updateViewMatrix();
         viewMatrix = glm::lookAt(cameraPosition, glm::vec3(0.0f), glm::vec3(0, 1, 0));
@@ -782,9 +782,10 @@ bool initTexture() {
 
     cv::dilate(thresh, threshDilated,
                         cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9, 9)));
-//    cv::erode(thresh, threshEroded,
-//               cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
-    threshEroded = thresh.clone();
+    cv::erode(thresh, threshEroded,
+               cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
+//    threshEroded = thresh.clone();
+    cv::GaussianBlur(threshEroded, threshEroded, cv::Size(9, 9), 0);
 
 
     cv::findContours(thresh, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
@@ -892,17 +893,23 @@ bool initTexture() {
     cv::bitwise_not(bigmask, smallmask);
 
     cv::Mat albedo1, albedo2, albedoRes;
-    albedoInpainted.copyTo(albedo1, smallmask);
+    albedoInpainted.copyTo(albedo1);
     cv::GaussianBlur(albedo1, albedo1, cv::Size(11, 11), 0);
-    albedoInpainted.copyTo(albedo2, bigmask);
-    cv::add(albedo1, albedo2, albedoRes);
+    albedoRes = albedoInpainted.clone();
+    for (std::size_t i = 0; i < width*height; i++) {
+        if (smallmask.data[i] == 255) {
+            albedoRes.data[3*i] = albedo1.data[3*i];
+            albedoRes.data[3*i+1] = albedo1.data[3*i+1];
+            albedoRes.data[3*i+2] = albedo1.data[3*i+2];
+        }
+    }
 
     GL_CHECK(glGenTextures(1, &albedoBGTexture));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoBGTexture));
 
     GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat[albedoChn],
-                          albedoInpainted.size().width, albedoInpainted.size().height, 0,
-                          pixelFormat[albedoChn], GL_UNSIGNED_BYTE, albedoInpainted.data));
+                          albedoRes.size().width, albedoRes.size().height, 0,
+                          pixelFormat[albedoChn], GL_UNSIGNED_BYTE, albedoRes.data));
     delete[] dataCopy2;
 
     /* Set texture mode. */
