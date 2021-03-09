@@ -348,7 +348,7 @@ bool setupGraphics(int width, int height)
 
     GL_CHECK(glViewport(0, 0, width, height));
 
-    init3DImageMesh(32, 32);
+    init3DImageMesh(128, 128);
 
     projectionMatrix = glm::perspective(glm::radians(70.0f), (float) width / height, 1.0f, 5000.0f);
     cameraPosition = glm::vec3(0, 0, 60);
@@ -379,6 +379,8 @@ bool setupGraphics(int width, int height)
     GL_CHECK(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
     GL_CHECK(glClearDepthf(1.0f));
     glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     return true;
 }
@@ -386,9 +388,6 @@ bool setupGraphics(int width, int height)
 void renderFrame(jfloat *gyroQuat)
 {
     GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-
-    GL_CHECK(glUseProgram(programID));
-
 
     if (gyroQuat != NULL) {
         glm::quat gyroQuatGLM(gyroQuat[0], gyroQuat[1], gyroQuat[2], gyroQuat[3]);
@@ -403,28 +402,6 @@ void renderFrame(jfloat *gyroQuat)
         updateViewMatrix();
         viewMatrix = glm::lookAt(cameraPosition, glm::vec3(0.0f), glm::vec3(0, 1, 0));
     }
-
-    glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
-    glUniformMatrix4fv(iLocViewMatrix, 1, GL_FALSE, glm::value_ptr(viewMatrix));
-    glUniformMatrix4fv(iLocModelMatrix, 1, GL_FALSE, glm::value_ptr(modelMatrix));
-
-
-    glBindBuffer(GL_ARRAY_BUFFER, vboHandles[VERTEX]);
-    glEnableVertexAttribArray(iLocPosition);
-    glVertexAttribPointer(iLocPosition, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) 0);
-    glEnableVertexAttribArray(iLocUV);
-    glVertexAttribPointer(iLocUV, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) (sizeof(glm::vec3)));
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboHandles[INDEX]);
-
-    GL_CHECK(glActiveTexture(GL_TEXTURE0));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoTextureID));
-    GL_CHECK(glActiveTexture(GL_TEXTURE1));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureID));
-    GL_CHECK(glActiveTexture(GL_TEXTURE2));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
-
-    GL_CHECK(glDrawElements(GL_TRIANGLES, _3DImageMeshIndices.size(), GL_UNSIGNED_SHORT, (void *) 0));
 
     // BACKGROUND
     GL_CHECK(glUseProgram(programID2));
@@ -449,6 +426,31 @@ void renderFrame(jfloat *gyroQuat)
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
 
     GL_CHECK(glDrawElements(GL_TRIANGLES, _bgIndices.size(), GL_UNSIGNED_SHORT, (void *) 0));
+
+
+    GL_CHECK(glUseProgram(programID));
+
+    glUniformMatrix4fv(iLocProjectionMatrix, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+    glUniformMatrix4fv(iLocViewMatrix, 1, GL_FALSE, glm::value_ptr(viewMatrix));
+    glUniformMatrix4fv(iLocModelMatrix, 1, GL_FALSE, glm::value_ptr(modelMatrix));
+
+
+    glBindBuffer(GL_ARRAY_BUFFER, vboHandles[VERTEX]);
+    glEnableVertexAttribArray(iLocPosition);
+    glVertexAttribPointer(iLocPosition, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) 0);
+    glEnableVertexAttribArray(iLocUV);
+    glVertexAttribPointer(iLocUV, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *) (sizeof(glm::vec3)));
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboHandles[INDEX]);
+
+    GL_CHECK(glActiveTexture(GL_TEXTURE0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, albedoTextureID));
+    GL_CHECK(glActiveTexture(GL_TEXTURE1));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, depthTextureID));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
+
+    GL_CHECK(glDrawElements(GL_TRIANGLES, _3DImageMeshIndices.size(), GL_UNSIGNED_SHORT, (void *) 0));
 
     /* Draw fonts. */
     //text->draw();
@@ -782,10 +784,13 @@ bool initTexture() {
 
     cv::dilate(thresh, threshDilated,
                         cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(9, 9)));
-    cv::erode(thresh, threshEroded,
+    cv::dilate(thresh, threshEroded,
                cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
+    cv::Mat threshFiltered;
+    cv::bilateralFilter(threshEroded, threshFiltered, 15, 75, 75);
+
 //    threshEroded = thresh.clone();
-    cv::GaussianBlur(threshEroded, threshEroded, cv::Size(9, 9), 0);
+//    cv::GaussianBlur(threshEroded, threshEroded, cv::Size(9, 9), 0);
 
 
     cv::findContours(thresh, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
@@ -850,7 +855,7 @@ bool initTexture() {
     GL_CHECK(glGenTextures(1, &maskTextureID));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, maskTextureID));
 
-    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, threshEroded.data));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, threshFiltered.data));
 
     /* Set texture mode. */
     GL_CHECK(glGenerateMipmap(GL_TEXTURE_2D));
